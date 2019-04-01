@@ -16,6 +16,7 @@
 
 package fr.acinq.eclair.router
 
+import java.util.concurrent.Executors
 import java.util.zip.Adler32
 
 import akka.Done
@@ -42,7 +43,7 @@ import scala.collection.immutable.SortedMap
 import scala.collection.{SortedSet, mutable}
 import scala.compat.Platform
 import scala.concurrent.duration._
-import scala.concurrent.{ExecutionContext, Promise}
+import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.{Random, Try}
 
 // @formatter:off
@@ -160,6 +161,7 @@ class Router(val nodeParams: NodeParams, watcher: ActorRef, initialized: Option[
   )
 
   val db = nodeParams.db.network
+  val singleThreadExecutionContext = ExecutionContext.fromExecutor(Executors.newSingleThreadExecutor())
 
   {
     log.info("loading network announcements from db...")
@@ -674,7 +676,7 @@ class Router(val nodeParams: NodeParams, watcher: ActorRef, initialized: Option[
       } else if (pc.getSameSideAs(u).isDefined) {
         log.debug("updated channel_update for shortChannelId={} public={} flags={} {}", u.shortChannelId, publicChannel, u.channelFlags, u)
         context.system.eventStream.publish(ChannelUpdatesReceived(u :: Nil))
-        db.updateChannel(u)
+        Future(db.updateChannel(u))(singleThreadExecutionContext)
         // update the graph
         val graph1 = Announcements.isEnabled(u.channelFlags) match {
           case true => d.graph.removeEdge(desc).addEdge(desc, u)
@@ -684,7 +686,7 @@ class Router(val nodeParams: NodeParams, watcher: ActorRef, initialized: Option[
       } else {
         log.debug("added channel_update for shortChannelId={} public={} flags={} {}", u.shortChannelId, publicChannel, u.channelFlags, u)
         context.system.eventStream.publish(ChannelUpdatesReceived(u :: Nil))
-        db.updateChannel(u)
+        Future(db.updateChannel(u))(singleThreadExecutionContext)
         // we also need to update the graph
         val graph1 = d.graph.addEdge(desc, u)
         d.copy(channels = d.channels + (u.shortChannelId -> pc.updateSameSideAs(u)), privateChannels = d.privateChannels - u.shortChannelId, rebroadcast = d.rebroadcast.copy(updates = d.rebroadcast.updates + (u -> Set(origin))), graph = graph1)
