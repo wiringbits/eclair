@@ -20,10 +20,10 @@ import java.util.UUID
 
 import akka.NotUsed
 import akka.actor.{Actor, ActorSystem, Props}
-import akka.http.scaladsl.model.HttpMethods.POST
+import akka.http.scaladsl.model.HttpMethods.{OPTIONS, POST}
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.model.headers.CacheDirectives.{`max-age`, `no-store`, public}
-import akka.http.scaladsl.model.headers.{`Access-Control-Allow-Headers`, `Access-Control-Allow-Methods`, `Cache-Control`}
+import akka.http.scaladsl.model.headers._
 import akka.http.scaladsl.model.ws.{Message, TextMessage}
 import akka.http.scaladsl.server._
 import akka.http.scaladsl.server.directives.Credentials
@@ -40,6 +40,7 @@ import fr.acinq.eclair.{Eclair, ShortChannelId}
 import grizzled.slf4j.Logging
 import org.json4s.jackson.Serialization
 import scodec.bits.ByteVector
+
 import scala.concurrent.Future
 import scala.concurrent.duration._
 
@@ -86,7 +87,9 @@ trait Service extends ExtraDirectives with Logging {
   }
 
   val customHeaders = `Access-Control-Allow-Headers`("Content-Type, Authorization") ::
-    `Access-Control-Allow-Methods`(POST) ::
+    `Access-Control-Allow-Origin`("http://127.0.0.1:9881") :: // TODO origin should be configurable from eclair.conf
+    `Access-Control-Allow-Credentials`(true) ::
+    `Access-Control-Allow-Methods`(POST, OPTIONS) ::
     `Cache-Control`(public, `no-store`, `max-age`(0)) :: Nil
 
   lazy val makeSocketHandler: Flow[Message, TextMessage.Strict, NotUsed] = {
@@ -206,11 +209,12 @@ trait Service extends ExtraDirectives with Logging {
                       case (invoice, Some(overrideAmount)) => complete(eclairApi.findRoute(invoice.nodeId, overrideAmount, invoice.routingInfo))
                       case _ => reject(MalformedFormFieldRejection("invoice", "The invoice must have an amount or you need to specify one using 'amountMsat'"))
                     }
-                  } ~ path("findroutetonode") {
-                  formFields(nodeId, "amountMsat".as[Long]) { (nodeId, amount) =>
-                    complete(eclairApi.findRoute(nodeId, amount))
-                  }
-                } ~
+                  } ~
+                  path("findroutetonode") {
+                    formFields(nodeId, "amountMsat".as[Long]) { (nodeId, amount) =>
+                      complete(eclairApi.findRoute(nodeId, amount))
+                    }
+                  } ~
                   path("send") {
                     formFields("invoice".as[PaymentRequest], "amountMsat".as[Long].?) {
                       case (invoice@PaymentRequest(_, Some(amount), _, nodeId, _, _), None) =>
@@ -256,12 +260,12 @@ trait Service extends ExtraDirectives with Logging {
                     handleWebSocketMessages(makeSocketHandler)
                   }
               }
+            } ~ options {
+              complete(HttpResponse(status = StatusCodes.OK, entity = HttpEntity.Empty))
             }
           }
         }
       }
     }
   }
-
-
 }
