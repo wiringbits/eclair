@@ -26,10 +26,11 @@ import fr.acinq.eclair.blockchain.EclairWallet
 import fr.acinq.eclair.crypto.TransportHandler
 import fr.acinq.eclair.io.Peer.{CHANNELID_ZERO, ResumeAnnouncements, SendPing}
 import fr.acinq.eclair.router.RoutingSyncSpec.makeFakeRoutingInfo
-import fr.acinq.eclair.router.{Rebroadcast, RoutingSyncSpec}
+import fr.acinq.eclair.router.{Rebroadcast, RoutingSyncSpec, SendChannelQuery}
 import fr.acinq.eclair.wire.{EncodedShortChannelIds, EncodingType, Error, Ping, Pong}
-import fr.acinq.eclair.{ShortChannelId, TestkitBaseClass, randomBytes, wire}
-import org.scalatest.Outcome
+import fr.acinq.eclair._
+import org.scalatest.{Outcome, Tag}
+import scodec.bits._
 
 import scala.concurrent.duration._
 
@@ -52,22 +53,51 @@ class PeerSpec extends TestkitBaseClass {
     val transport = TestProbe()
     val wallet: EclairWallet = null // unused
     val remoteNodeId = Bob.nodeParams.nodeId
-    val peer = system.actorOf(Peer.props(Alice.nodeParams, remoteNodeId, authenticator.ref, watcher.ref, router.ref, relayer.ref, wallet))
+    val nodeParams = if (test.tags.contains("sync-whitelist-bob")) {
+      TestConstants.Alice.nodeParams.copy(syncWhitelist = Set(remoteNodeId))
+    } else if (test.tags.contains("sync-whitelist-random")) {
+      TestConstants.Alice.nodeParams.copy(syncWhitelist = Set(randomKey.publicKey))
+    } else {
+      TestConstants.Alice.nodeParams
+    }
+    val peer = system.actorOf(Peer.props(nodeParams, remoteNodeId, authenticator.ref, watcher.ref, router.ref, relayer.ref, wallet))
     withFixture(test.toNoArgTest(FixtureParam(remoteNodeId, authenticator, watcher, router, relayer, connection, transport, peer)))
   }
 
-  def connect(remoteNodeId: PublicKey, authenticator: TestProbe, watcher: TestProbe, router: TestProbe, relayer: TestProbe, connection: TestProbe, transport: TestProbe, peer: ActorRef): Unit = {
+  def connect(remoteNodeId: PublicKey, authenticator: TestProbe, watcher: TestProbe, router: TestProbe, relayer: TestProbe, connection: TestProbe, transport: TestProbe, peer: ActorRef, remoteInit: wire.Init = wire.Init(Bob.nodeParams.globalFeatures, Bob.nodeParams.localFeatures), expectSync: Boolean = false): Unit = {
     // let's simulate a connection
     val probe = TestProbe()
     probe.send(peer, Peer.Init(None, Set.empty))
     authenticator.send(peer, Authenticator.Authenticated(connection.ref, transport.ref, remoteNodeId, new InetSocketAddress("1.2.3.4", 42000), outgoing = true, None))
     transport.expectMsgType[TransportHandler.Listener]
     transport.expectMsgType[wire.Init]
-    transport.send(peer, wire.Init(Bob.nodeParams.globalFeatures, Bob.nodeParams.localFeatures))
+    transport.send(peer, remoteInit)
     transport.expectMsgType[TransportHandler.ReadAck]
-    router.expectNoMsg(1 second) // bob's features require no sync
+    if (expectSync) {
+      router.expectMsgType[SendChannelQuery]
+    } else {
+      router.expectNoMsg(1 second)
+    }
     probe.send(peer, Peer.GetPeerInfo)
     assert(probe.expectMsgType[Peer.PeerInfo].state == "CONNECTED")
+  }
+
+  test("sync if no whitelist is defined") { f =>
+    import f._
+    val remoteInit = wire.Init(Bob.nodeParams.globalFeatures, bin"10000000".toByteVector) // bob support channel range queries
+    connect(remoteNodeId, authenticator, watcher, router, relayer, connection, transport, peer, remoteInit, expectSync = true)
+  }
+
+  test("sync if whitelist contains peer", Tag("sync-whitelist-bob")) { f =>
+    import f._
+    val remoteInit = wire.Init(Bob.nodeParams.globalFeatures, bin"10000000".toByteVector) // bob support channel range queries
+    connect(remoteNodeId, authenticator, watcher, router, relayer, connection, transport, peer, remoteInit, expectSync = true)
+  }
+
+  test("don't sync if whitelist doesn't contain peer", Tag("sync-whitelist-random")) { f =>
+    import f._
+    val remoteInit = wire.Init(Bob.nodeParams.globalFeatures, bin"10000000".toByteVector) // bob support channel range queries
+    connect(remoteNodeId, authenticator, watcher, router, relayer, connection, transport, peer, remoteInit, expectSync = false)
   }
 
   test("reply to ping") { f =>

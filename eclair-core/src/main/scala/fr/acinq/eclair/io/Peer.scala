@@ -140,7 +140,12 @@ class Peer(nodeParams: NodeParams, remoteNodeId: PublicKey, authenticator: Actor
         if (remoteFeatures.hasChannelRangeQueriesOptional || remoteFeatures.hasChannelRangeQueriesMandatory) {
           // if they support channel queries, always ask for their filter
           // NB: we always add extended info; if peer doesn't understand them it will ignore them
-          router ! SendChannelQuery(remoteNodeId, d.transport, flags_opt = Some(ExtendedQueryFlags.TIMESTAMPS_AND_CHECKSUMS))
+          if (nodeParams.syncWhitelist.isEmpty || nodeParams.syncWhitelist.contains(remoteNodeId)) {
+            log.info("syncing with this peer")
+            router ! SendChannelQuery(remoteNodeId, d.transport, flags_opt = Some(ExtendedQueryFlags.TIMESTAMPS_AND_CHECKSUMS))
+          } else {
+            log.info("not syncing with this peer")
+          }
         }
 
         // let's bring existing/requested channels online

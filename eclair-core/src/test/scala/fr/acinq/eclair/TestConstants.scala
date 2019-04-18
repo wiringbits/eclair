@@ -56,6 +56,7 @@ object TestConstants {
       globalFeatures = ByteVector.empty,
       localFeatures = ByteVector(0),
       overrideFeatures = Map.empty,
+      syncWhitelist = Set.empty,
       dustLimitSatoshis = 1100,
       maxHtlcValueInFlightMsat = UInt64(150000000),
       maxAcceptedHtlcs = 100,
@@ -120,6 +121,7 @@ object TestConstants {
       globalFeatures = ByteVector.empty,
       localFeatures = ByteVector.empty, // no announcement
       overrideFeatures = Map.empty,
+      syncWhitelist = Set.empty,
       dustLimitSatoshis = 1000,
       maxHtlcValueInFlightMsat = UInt64.MaxValue, // Bob has no limit on the combined max value of in-flight htlcs
       maxAcceptedHtlcs = 30,
