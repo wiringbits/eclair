@@ -590,7 +590,7 @@ object Helpers {
       *                                 to get some constant parameters, not commitment data
       * @param remotePerCommitmentPoint the remote perCommitmentPoint corresponding to this commitment
       * @param tx                       the remote commitment transaction that has just been published
-      * @return a list of transactions (one per HTLC that we can claim)
+      * @return                         a transaction spending our output from the remote commit tx
       */
     def claimRemoteCommitMainOutput(keyManager: KeyManager, commitments: Commitments, remotePerCommitmentPoint: Point, tx: Transaction)(implicit log: LoggingAdapter): RemoteCommitPublished = {
       val localPubkey = Generators.derivePubKey(keyManager.paymentPoint(commitments.localParams.channelKeyPath).publicKey, remotePerCommitmentPoint)

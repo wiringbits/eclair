@@ -94,6 +94,8 @@ class ApiServiceSpec extends FunSuite with ScalatestRouteTest {
     override def allUpdates(nodeId: Option[Crypto.PublicKey])(implicit timeout: Timeout): Future[Iterable[ChannelUpdate]] = ???
 
     override def getInfoResponse()(implicit timeout: Timeout): Future[GetInfoResponse] = ???
+
+    override def attemptChannelRecovery(channelBackup: RES_GETINFO, uri: String)(implicit timeout: Timeout): String = ???
   }
 
   implicit val formats = JsonSupport.formats

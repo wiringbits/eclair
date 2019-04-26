@@ -16,19 +16,23 @@
 
 package fr.acinq.eclair
 
+import java.net.InetSocketAddress
 import java.util.UUID
-import akka.actor.ActorRef
+
+import akka.actor.{ActorRef, SupervisorStrategy}
 import akka.pattern._
 import akka.util.Timeout
-import fr.acinq.bitcoin.Crypto.PublicKey
-import fr.acinq.bitcoin.{ByteVector32, MilliSatoshi, Satoshi}
+import fr.acinq.bitcoin.Crypto.{Point, PublicKey}
+import fr.acinq.bitcoin.DeterministicWallet.KeyPath
+import fr.acinq.bitcoin.{Block, ByteVector32, MilliSatoshi, OutPoint, Satoshi, Transaction}
 import fr.acinq.eclair.channel._
-import fr.acinq.eclair.db.{NetworkFee, IncomingPayment, OutgoingPayment, Stats}
-import fr.acinq.eclair.io.Peer.{GetPeerInfo, PeerInfo}
-import fr.acinq.eclair.io.{NodeURI, Peer}
+import fr.acinq.eclair.db.{IncomingPayment, NetworkFee, OutgoingPayment, Stats}
+import fr.acinq.eclair.io.Peer.{GetPeerInfo, Init, PeerInfo}
+import fr.acinq.eclair.io.{Authenticator, NodeURI, Peer, Switchboard}
 import fr.acinq.eclair.payment.PaymentLifecycle._
 import fr.acinq.eclair.router.{ChannelDesc, RouteRequest, RouteResponse}
 import scodec.bits.ByteVector
+
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import fr.acinq.eclair.payment.{PaymentReceived, PaymentRelayed, PaymentRequest, PaymentSent}
@@ -86,6 +90,7 @@ trait Eclair {
 
   def getInfoResponse()(implicit timeout: Timeout): Future[GetInfoResponse]
 
+  def attemptChannelRecovery(channelBackup: RES_GETINFO, uri: String)(implicit timeout: Timeout): String
 }
 
 class EclairImpl(appKit: Kit) extends Eclair {
@@ -218,6 +223,22 @@ class EclairImpl(appKit: Kit) extends Eclair {
     appKit.nodeParams.db.payments.getPaymentRequest(paymentHash)
   }
 
+  override def attemptChannelRecovery(channelBackup: RES_GETINFO, uri: String)(implicit timeout: Timeout): String = {
+    import appKit._
+
+    val data = channelBackup.data.asInstanceOf[DATA_NORMAL]
+
+    // connect to peer
+    val nodeUri = NodeURI.parse(uri)
+    val authenticator = system.actorOf(SimpleSupervisor.props(Authenticator.props(nodeParams), "authenticator", SupervisorStrategy.Resume))
+    val peer = system.actorOf(Peer.props(appKit.nodeParams, nodeUri.nodeId, authenticator, appKit.watcher, appKit.router, appKit.relayer, appKit.wallet))
+
+    // triggers a connection to the peer with the channel data we supply
+    peer ! Init(previousKnownAddress = Some(new InetSocketAddress(nodeUri.address.getHost, nodeUri.address.getPort)), storedChannels = Set(data))
+
+    "done?"
+  }
+
   /**
     * Sends a request to a channel and expects a response
     *
@@ -242,3 +263,9 @@ class EclairImpl(appKit: Kit) extends Eclair {
   )
 
 }
+
+case class ChannelBackupInfo(
+    seed: ByteVector32,
+    keyPath: KeyPath,
+    channelOutpoint: OutPoint
+)

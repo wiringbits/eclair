@@ -34,6 +34,7 @@ import fr.acinq.bitcoin.ByteVector32
 import fr.acinq.bitcoin.Crypto.PublicKey
 import fr.acinq.eclair.api.FormParamExtractors._
 import fr.acinq.eclair.api.JsonSupport.CustomTypeHints
+import fr.acinq.eclair.channel.RES_GETINFO
 import fr.acinq.eclair.io.NodeURI
 import fr.acinq.eclair.payment.PaymentLifecycle.PaymentFailed
 import fr.acinq.eclair.payment.{PaymentReceived, PaymentRequest, _}
@@ -278,6 +279,11 @@ trait Service extends ExtraDirectives with Logging {
                       } ~
                       path("channelstats") {
                         complete(eclairApi.channelStats())
+                      } ~
+                      path("recovery") {
+                        formFields("channelData".as[RES_GETINFO], "uri") { (channelData, uri) =>
+                          complete(eclairApi.attemptChannelRecovery(channelData, uri))
+                        }
                       }
                   } ~ get {
                     path("ws") {
