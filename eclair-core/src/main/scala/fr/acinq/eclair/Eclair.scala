@@ -239,19 +239,12 @@ class EclairImpl(appKit: Kit) extends Eclair {
   }
 
   override def attemptChannelRecovery(channelBackup: ByteVector, uri: String)(implicit timeout: Timeout): String = {
-    import appKit._
 
     val commitments = ChannelCodecs.DATA_NORMAL_Codec.decodeValue(channelBackup.toBitVector).require
 
-    // connect to peer
-    val nodeUri = NodeURI.parse(uri)
-    val authenticator = system.actorOf(SimpleSupervisor.props(Authenticator.props(nodeParams), "authenticator", SupervisorStrategy.Resume))
-    val peer = system.actorOf(Peer.props(appKit.nodeParams, nodeUri.nodeId, authenticator, appKit.watcher, appKit.router, appKit.relayer, appKit.wallet))
+    appKit.switchboard ? Peer.Connect(NodeURI.parse(uri), Set(commitments))
 
-    // triggers a connection to the peer with the channel data we supply
-    peer ! Init(previousKnownAddress = Some(new InetSocketAddress(nodeUri.address.getHost, nodeUri.address.getPort)), storedChannels = Set(commitments))
-
-    "done?"
+    "in progress"
   }
 
   /**
