@@ -34,7 +34,6 @@ import fr.acinq.bitcoin.ByteVector32
 import fr.acinq.bitcoin.Crypto.PublicKey
 import fr.acinq.eclair.api.FormParamExtractors._
 import fr.acinq.eclair.api.JsonSupport.CustomTypeHints
-import fr.acinq.eclair.channel.RES_GETINFO
 import fr.acinq.eclair.io.NodeURI
 import fr.acinq.eclair.payment.PaymentLifecycle.PaymentFailed
 import fr.acinq.eclair.payment.{PaymentReceived, PaymentRequest, _}
@@ -42,6 +41,7 @@ import fr.acinq.eclair.{Eclair, ShortChannelId}
 import grizzled.slf4j.Logging
 import org.json4s.jackson.Serialization
 import scodec.bits.ByteVector
+
 import scala.concurrent.Future
 import scala.concurrent.duration._
 
@@ -269,8 +269,13 @@ trait Service extends ExtraDirectives with Logging {
                       path("channelstats") {
                         complete(eclairApi.channelStats())
                       } ~
+                      path("getBackup") {
+                        withChannelIdentifier { channelIdentifier =>
+                          complete(eclairApi.getChannelBackup(channelIdentifier))
+                        }
+                      } ~
                       path("recovery") {
-                        formFields("channelData".as[RES_GETINFO], "uri") { (channelData, uri) =>
+                        formFields("channelData".as[ByteVector], "uri".as[String]) { (channelData, uri) =>
                           complete(eclairApi.attemptChannelRecovery(channelData, uri))
                         }
                       }

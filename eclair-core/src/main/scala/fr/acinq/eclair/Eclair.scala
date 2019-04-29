@@ -29,6 +29,7 @@ import fr.acinq.bitcoin.Crypto.PublicKey
 import fr.acinq.bitcoin.{ByteVector32, MilliSatoshi, Satoshi}
 import fr.acinq.eclair.channel.Register.{Forward, ForwardShortId}
 import fr.acinq.eclair.channel._
+import fr.acinq.eclair.crypto.ShaChain
 import fr.acinq.eclair.db.{IncomingPayment, NetworkFee, OutgoingPayment, Stats}
 import fr.acinq.eclair.io.Peer.{GetPeerInfo, Init, PeerInfo}
 import fr.acinq.eclair.io.{Authenticator, NodeURI, Peer, Switchboard}
@@ -38,8 +39,9 @@ import scodec.bits.ByteVector
 
 import scala.concurrent.Future
 import scala.concurrent.duration._
-import fr.acinq.eclair.payment.{PaymentReceived, PaymentRelayed, PaymentRequest, PaymentSent}
-import fr.acinq.eclair.wire.{ChannelAnnouncement, ChannelUpdate, NodeAddress, NodeAnnouncement}
+import fr.acinq.eclair.payment._
+import fr.acinq.eclair.transactions.Transactions.InputInfo
+import fr.acinq.eclair.wire._
 
 case class GetInfoResponse(nodeId: PublicKey, alias: String, chainHash: ByteVector32, blockHeight: Int, publicAddresses: Seq[NodeAddress])
 
@@ -93,7 +95,10 @@ trait Eclair {
 
   def getInfoResponse()(implicit timeout: Timeout): Future[GetInfoResponse]
 
-  def attemptChannelRecovery(channelBackup: RES_GETINFO, uri: String)(implicit timeout: Timeout): String
+  def getChannelBackup(channelId: Either[ByteVector32, ShortChannelId])(implicit timeout: Timeout): Future[ByteVector]
+
+  def attemptChannelRecovery(channelBackup: ByteVector, uri: String)(implicit timeout: Timeout): String
+
 }
 
 class EclairImpl(appKit: Kit) extends Eclair {
@@ -226,10 +231,17 @@ class EclairImpl(appKit: Kit) extends Eclair {
     appKit.nodeParams.db.payments.getPaymentRequest(paymentHash)
   }
 
-  override def attemptChannelRecovery(channelBackup: RES_GETINFO, uri: String)(implicit timeout: Timeout): String = {
+  override def getChannelBackup(channelIdentifier: Either[ByteVector32, ShortChannelId])(implicit timeout: Timeout): Future[ByteVector] = {
+    sendToChannel(channelIdentifier, CMD_GETINFO).mapTo[RES_GETINFO].map { info =>
+      val dataNormal = info.data.asInstanceOf[DATA_NORMAL]
+      ByteVector(ChannelCodecs.DATA_NORMAL_Codec.encode(dataNormal).require.toByteArray)
+    }
+  }
+
+  override def attemptChannelRecovery(channelBackup: ByteVector, uri: String)(implicit timeout: Timeout): String = {
     import appKit._
 
-    val data = channelBackup.data.asInstanceOf[DATA_NORMAL]
+    val commitments = ChannelCodecs.DATA_NORMAL_Codec.decodeValue(channelBackup.toBitVector).require
 
     // connect to peer
     val nodeUri = NodeURI.parse(uri)
@@ -237,7 +249,7 @@ class EclairImpl(appKit: Kit) extends Eclair {
     val peer = system.actorOf(Peer.props(appKit.nodeParams, nodeUri.nodeId, authenticator, appKit.watcher, appKit.router, appKit.relayer, appKit.wallet))
 
     // triggers a connection to the peer with the channel data we supply
-    peer ! Init(previousKnownAddress = Some(new InetSocketAddress(nodeUri.address.getHost, nodeUri.address.getPort)), storedChannels = Set(data))
+    peer ! Init(previousKnownAddress = Some(new InetSocketAddress(nodeUri.address.getHost, nodeUri.address.getPort)), storedChannels = Set(commitments))
 
     "done?"
   }
@@ -263,9 +275,3 @@ class EclairImpl(appKit: Kit) extends Eclair {
   )
 
 }
-
-case class ChannelBackupInfo(
-    seed: ByteVector32,
-    keyPath: KeyPath,
-    channelOutpoint: OutPoint
-)
